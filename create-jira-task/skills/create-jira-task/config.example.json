@@ -1,0 +1,76 @@
+{
+  "_note": "Copy this to <repo>/.claude/create-jira-task.json and replace the placeholder values. Only `jira.*` is required; everything else falls back to skill defaults (English summary + body, standard Fibonacci matrix, split-offered at 21/34/55, split-mandatory at 89). The language/estimation blocks below demonstrate a non-English body setup — drop them if the EN defaults fit your project.",
+
+  "jira": {
+    "cloudId": "00000000-0000-0000-0000-000000000000",
+    "site": "your-org.atlassian.net",
+    "projectKey": "PROJ",
+    "projectId": "10000",
+    "issueTypes": {
+      "task": "10001",
+      "bug": "10002"
+    },
+    "customFields": {
+      "storyPoints": "customfield_10016",
+      "sprint": "customfield_10020"
+    }
+  },
+
+  "assignee": {
+    "email": "you@example.com"
+  },
+
+  "language": {
+    "summary": "en",
+    "body": "de",
+    "summaryStyle": "imperative, <= ~70 chars, no ticket prefix",
+    "bodySections": [
+      {
+        "heading": "Ziel",
+        "purpose": "was soll erreicht werden — WAS + WOZU",
+        "required": true
+      },
+      {
+        "heading": "Hintergrund",
+        "purpose": "Kontext, was bereits existiert, warum jetzt",
+        "required": false,
+        "skipWhen": "trivialer Bugfix — dann weglassen, nicht mit 'entfällt' platzhaltern"
+      },
+      {
+        "heading": "Akzeptanzkriterien",
+        "purpose": "testbar formulierte Punkte",
+        "required": true,
+        "format": "checkbox-list"
+      },
+      {
+        "heading": "Technische Hinweise",
+        "purpose": "konkrete Dateipfade, Funktionsnamen, Migrationen, Config-Keys",
+        "required": false,
+        "skipWhen": "trivial"
+      }
+    ],
+    "estimateHeading": "Schätzung",
+    "fieldQuestions": {
+      "sprint": "Sprint: aktuellen Sprint eintragen, oder leer lassen?",
+      "assignee": "Assignee: dir zuordnen, oder leer lassen?"
+    },
+    "confirmPhrases": ["ja", "anlegen", "ok", "create it", "mach", "leg an"]
+  },
+
+  "estimation": {
+    "matrix": [
+      { "sp": 1,  "label": "≈ 1 h oder weniger" },
+      { "sp": 2,  "label": "bis zu 2 h" },
+      { "sp": 3,  "label": "bis zu 1/2 Tag" },
+      { "sp": 5,  "label": "bis zu 1 Tag" },
+      { "sp": 8,  "label": "mindestens 1 Tag" },
+      { "sp": 13, "label": "höchstens 2 Tage" },
+      { "sp": 21, "label": "mindestens 2 Tage" },
+      { "sp": 34, "label": "mindestens 3 Tage" },
+      { "sp": 55, "label": "mindestens 1 Woche" }
+    ],
+    "splitOptionalAt": [21, 34, 55],
+    "splitMandatoryAt": [89],
+    "subTicketTargetMaxSp": 13
+  }
+}

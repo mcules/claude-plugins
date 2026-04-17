@@ -13,6 +13,12 @@
       "source": "./todo-buffer",
       "description": "Frictionless personal todo capture into a single markdown file. Intercepts `todo:` / `todo!` prompts via hook, supports listing and Jira-ticket handoff via skill.",
       "version": "0.1.0"
+    },
+    {
+      "name": "create-jira-task",
+      "source": "./create-jira-task",
+      "description": "Turn a rough request into a full Jira ticket via the Atlassian MCP. Two-phase flow (proposal → per-ticket confirmation → create). Project, fields, language convention, SP matrix and split thresholds are configured per-repo via `.claude/create-jira-task.json`.",
+      "version": "0.1.0"
     }
   ]
 }

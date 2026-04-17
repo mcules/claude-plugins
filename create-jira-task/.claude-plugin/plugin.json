@@ -1,0 +1,8 @@
+{
+  "name": "create-jira-task",
+  "version": "0.1.0",
+  "description": "Turn a rough request into a full Jira ticket via the Atlassian MCP. Two-phase flow: proposal (title, body, SP estimate with visible hour breakdown) → per-ticket confirmation → `createJiraIssue`. Project, custom fields, language convention, SP matrix and split thresholds are configured per-repo via `.claude/create-jira-task.json`; sensible defaults apply when keys are absent. Triggers on DE/EN phrasings like 'mach daraus einen Jira-Task', 'erfasse das als Ticket', 'create a Jira task for …'.",
+  "author": {
+    "name": "Dennis Eisold"
+  }
+}

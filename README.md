@@ -41,13 +41,26 @@ Duplicate handling is project-scoped: same text in the same project tag → reje
 
 Natural-language questions like "zeig meine todos", "welche todos habe ich", "was liegt im puffer" still work — they go through the model and the skill, just a bit slower than the `todos?` shortcut. If `create-jira-task` (or an Atlassian MCP) is available, the skill offers to turn selected todos into tickets; otherwise it stays a plain buffer with add/list/delete.
 
+### create-jira-task
+
+Turn a rough request (conversation paragraph, bug note, feature sketch) into a full Jira ticket via the Atlassian MCP. The skill enforces a two-phase flow: it produces a proposal in chat (title, body with acceptance criteria, SP estimate with a **visible hour breakdown**), asks two field questions (sprint? assignee?), and only calls `createJiraIssue` after explicit per-ticket confirmation. Return value is a single line: the ticket URL.
+
+Project-specific settings live in `<repo>/.claude/create-jira-task.json` — Jira cloud id, site, project key/id, issue-type ids, Story-Points and Sprint custom-field ids, self-assignee email, and optional overrides for the language split, body-section template, SP matrix, and split thresholds. Only the `jira.*` block is strictly required; everything else falls back to defaults (English summary + body, Goal / Background / Acceptance Criteria / Technical Notes, standard Fibonacci matrix with split-offered at 21 / 34 / 55 SP and split-mandatory at 89 SP). An annotated example with a complete DE-body + EN-summary setup ships at `skills/create-jira-task/config.example.json`.
+
+If the config file is missing, the skill offers to bootstrap it interactively using `getAccessibleAtlassianResources`, `getVisibleJiraProjects`, `getJiraProjectIssueTypesMetadata`, and `getJiraIssueTypeMetaWithFields` — so new projects don't need manual id hunting.
+
+Triggers on DE/EN phrasings: "mach daraus einen Jira-Task", "erfasse das als Ticket", "schreib mir ein Jira-Ticket für …", "leg einen Task in Jira an", "daraus bitte ein Ticket", "erstelle ein Ticket für diesen Bug" (→ issue type **Bug**), "create a Jira task for …", "open a ticket for …". Does **not** trigger on partial requests ("only give me a title", "estimate in hours only"), ticket lookups ("review ticket ABC-123"), or pure bug notes that aren't framed as tasks.
+
+Requires the Atlassian MCP to be connected (e.g. Rovo or any MCP server exposing `createJiraIssue`, `getVisibleJiraProjects`, `lookupJiraAccountId`, `atlassianUserInfo`).
+
 ## Install
 
-Add this marketplace, then install the plugin:
+Add this marketplace, then install the plugins you want:
 
 ```
 /plugin marketplace add https://github.com/mcules/claude-plugins
 /plugin install todo-buffer@mcules-plugins
+/plugin install create-jira-task@mcules-plugins
 ```
 
 ## Develop
@@ -55,5 +68,5 @@ Add this marketplace, then install the plugin:
 ```
 git clone https://github.com/mcules/claude-plugins
 cd claude-plugins
-# edit todo-buffer/
+# edit todo-buffer/ or create-jira-task/
 ```
