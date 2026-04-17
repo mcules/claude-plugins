@@ -41,7 +41,7 @@ Duplicate handling is project-scoped: same text in the same project tag → reje
 
 Natural-language questions like "zeig meine todos", "welche todos habe ich", "was liegt im puffer" still work — they go through the model and the skill, just a bit slower than the `todos?` shortcut.
 
-The ticket-system hand-off is gated via a simple readiness protocol: todo-buffer asks each known ticket-creation skill (currently `create-jira-task`; `create-github-issue` is planned) whether it is `ready` for the current project — the ticket-system owns that definition, todo-buffer doesn't inspect MCP tool lists or config files itself. If any skill says `ready`, the Jira/GitHub hand-off is offered. If none is ready, the skill asks **once per project** whether to set one up (`Jira / GitHub / nein`); the answer is remembered in `~/.claude/todo-buffer/project-settings.json` keyed by project root. Once declined, todo-buffer stays a plain buffer with add/list/delete for that project and makes no further mention of ticket systems.
+The ticket-system hand-off is gated via a simple readiness protocol: todo-buffer asks each known ticket-creation skill (`create-jira-task` for Jira, `create-github-issue` for GitHub Issues) whether it is `ready` for the current project — the ticket-system owns that definition, todo-buffer doesn't inspect MCP tool lists or config files itself. If any skill says `ready`, the Jira/GitHub hand-off is offered. If none is ready, the skill asks **once per project** whether to set one up (`Jira / GitHub / nein`); the answer is remembered in `~/.claude/todo-buffer/project-settings.json` keyed by project root. Once declined, todo-buffer stays a plain buffer with add/list/delete for that project and makes no further mention of ticket systems.
 
 ### create-jira-task
 
@@ -55,6 +55,20 @@ Triggers on DE/EN phrasings: "mach daraus einen Jira-Task", "erfasse das als Tic
 
 Requires the Atlassian MCP to be connected (e.g. Rovo or any MCP server exposing `createJiraIssue`, `getVisibleJiraProjects`, `lookupJiraAccountId`, `atlassianUserInfo`).
 
+### create-github-issue
+
+Turn a rough request into a full GitHub Issue via a GitHub MCP. Same two-phase discipline as `create-jira-task`: produce a proposal in chat (title, body with acceptance criteria, SP estimate with **visible hour breakdown**), ask two field questions (milestone? assignee?), and only call `create_issue` after explicit per-ticket confirmation. Return value is a single line: the issue URL.
+
+Project-specific settings live in `<repo>/.claude/create-github-issue.json` — `github.owner` and `github.repo` are the only strictly required keys; optional overrides cover `defaultLabels`, a `bugLabel` (default `"bug"`), `respectTemplates` (prefer `.github/ISSUE_TEMPLATE/*.md` when present, default `false`), `assignee.login`, `milestone.mode` (`current` | `none`), the language split with body-section template, the SP matrix, the split thresholds, and the estimation mode (`labels` → attach `sp:<N>`, `omit` → keep SP only in the body). An annotated example with a DE-body + EN-summary setup ships at `skills/create-github-issue/config.example.json`.
+
+If the config file is missing, the skill offers to bootstrap it interactively: parse `git remote get-url origin` for `owner/repo`, probe the repo for existing `sp:*` labels and offer to create the missing ones via `create_label`, detect whether `.github/ISSUE_TEMPLATE/*.md` exists before asking about `respectTemplates`, and ask optionally for a self-assign login.
+
+Split-threshold story on GitHub (no native epics): at an optional split, the user chooses between a single issue and a tracking parent + N sub-issues; at the mandatory threshold only the split is on the table. The parent carries a `- [ ] #<n>` checklist that GitHub renders as a progress tracker.
+
+Triggers on DE/EN phrasings: "mach daraus ein GitHub-Issue", "leg ein Issue auf GitHub an", "erfasse das als GitHub-Ticket", "schreib mir ein GitHub-Issue für …", "daraus bitte ein GitHub-Issue", "erstelle ein GitHub-Issue für diesen Bug" (→ attaches the configured `bugLabel`), "open a GitHub issue for …", "create a GitHub issue for …", "file a GH issue for …". Does **not** trigger on partial requests, Jira-flavoured phrasings (those are `create-jira-task`'s job), issue lookups, or pure bug notes that aren't framed as tasks.
+
+Requires a GitHub MCP server that exposes at least `create_issue` / `createIssue`; bootstrap and milestone resolution also use `list_labels` / `create_label` / `list_milestones` on the same server when available.
+
 ## Install
 
 Add this marketplace, then install the plugins you want:
@@ -63,6 +77,7 @@ Add this marketplace, then install the plugins you want:
 /plugin marketplace add https://github.com/mcules/claude-plugins
 /plugin install todo-buffer@mcules-plugins
 /plugin install create-jira-task@mcules-plugins
+/plugin install create-github-issue@mcules-plugins
 ```
 
 ## Develop
@@ -70,5 +85,5 @@ Add this marketplace, then install the plugins you want:
 ```
 git clone https://github.com/mcules/claude-plugins
 cd claude-plugins
-# edit todo-buffer/ or create-jira-task/
+# edit todo-buffer/, create-jira-task/ or create-github-issue/
 ```

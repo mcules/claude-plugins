@@ -1,0 +1,74 @@
+{
+  "_note": "Copy this to <repo>/.claude/create-github-issue.json and replace the placeholder values. Only `github.owner` and `github.repo` are required; everything else falls back to skill defaults (English summary + body, standard Fibonacci matrix, split-offered at 21/34/55, split-mandatory at 89, SP as `sp:<N>` labels, milestone in 'current' mode). The language/estimation blocks below demonstrate a non-English body setup — drop them if the EN defaults fit your project.",
+
+  "github": {
+    "owner": "my-org",
+    "repo": "my-repo",
+    "defaultLabels": [],
+    "bugLabel": "bug",
+    "respectTemplates": false
+  },
+
+  "assignee": {
+    "login": "my-gh-login"
+  },
+
+  "milestone": {
+    "mode": "current"
+  },
+
+  "language": {
+    "summary": "en",
+    "body": "de",
+    "summaryStyle": "imperative, <= ~70 chars, no issue-number prefix",
+    "bodySections": [
+      {
+        "heading": "Ziel",
+        "purpose": "was soll erreicht werden — WAS + WOZU",
+        "required": true
+      },
+      {
+        "heading": "Hintergrund",
+        "purpose": "Kontext, was bereits existiert, warum jetzt",
+        "required": false,
+        "skipWhen": "trivialer Bugfix — dann weglassen, nicht mit 'entfällt' platzhaltern"
+      },
+      {
+        "heading": "Akzeptanzkriterien",
+        "purpose": "testbar formulierte Punkte",
+        "required": true,
+        "format": "checkbox-list"
+      },
+      {
+        "heading": "Technische Hinweise",
+        "purpose": "konkrete Dateipfade, Funktionsnamen, Migrationen, Config-Keys",
+        "required": false,
+        "skipWhen": "trivial"
+      }
+    ],
+    "estimateHeading": "Schätzung",
+    "fieldQuestions": {
+      "milestone": "Milestone: in aktuellen Milestone einsortieren, oder leer lassen?",
+      "assignee": "Assignee: dir zuordnen, oder leer lassen?"
+    },
+    "confirmPhrases": ["ja", "anlegen", "ok", "create it", "mach", "leg an"]
+  },
+
+  "estimation": {
+    "mode": "labels",
+    "matrix": [
+      { "sp": 1,  "label": "≈ 1 h oder weniger" },
+      { "sp": 2,  "label": "bis zu 2 h" },
+      { "sp": 3,  "label": "bis zu 1/2 Tag" },
+      { "sp": 5,  "label": "bis zu 1 Tag" },
+      { "sp": 8,  "label": "mindestens 1 Tag" },
+      { "sp": 13, "label": "höchstens 2 Tage" },
+      { "sp": 21, "label": "mindestens 2 Tage" },
+      { "sp": 34, "label": "mindestens 3 Tage" },
+      { "sp": 55, "label": "mindestens 1 Woche" }
+    ],
+    "splitOptionalAt": [21, 34, 55],
+    "splitMandatoryAt": [89],
+    "subTicketTargetMaxSp": 13
+  }
+}

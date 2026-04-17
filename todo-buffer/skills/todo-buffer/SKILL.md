@@ -76,7 +76,7 @@ todo-buffer can hand a todo off to a ticket-creation skill (Jira, GitHub Issues,
 | Skill | Target |
 |-------|--------|
 | `create-jira-task` | Jira (Atlassian) |
-| `create-github-issue` | GitHub Issues — *planned; include once the plugin exists* |
+| `create-github-issue` | GitHub Issues |
 
 **How to invoke the readiness check on skill `X`:**
 

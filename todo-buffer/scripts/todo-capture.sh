@@ -49,24 +49,26 @@ emit_block() {
         '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
 }
 
-# Check if the create-jira-task skill is installed so we can offer the
-# Jira-handoff prompt at the bottom of `todos?` listings. We look for the
-# user-level install, the plugin-provided install, and common alternates.
-# If none exist, treat the environment as plain todo-only (no Jira prompt).
-jira_available() {
-    # User-level install
-    [ -d "$HOME/.claude/skills/create-jira-task" ] && return 0
-    # Plugin-provided install
-    for p in "$HOME/.claude/plugins/"*"/skills/create-jira-task"; do
+# Check whether a ticket-creation skill (`create-jira-task` /
+# `create-github-issue`) is installed so we can offer the matching handoff
+# prompt at the bottom of `todos?` listings. We look for the user-level
+# install, the plugin-provided install, and common alternates. If neither
+# is present, the listing stays plain.
+skill_installed() {
+    local skill="$1"
+    [ -d "$HOME/.claude/skills/$skill" ] && return 0
+    for p in "$HOME/.claude/plugins/"*"/skills/$skill"; do
         [ -d "$p" ] && return 0
     done
-    # Project-level (current dir or nearest git root)
-    [ -d "$PWD/.claude/skills/create-jira-task" ] && return 0
+    [ -d "$PWD/.claude/skills/$skill" ] && return 0
     if gitroot=$(git rev-parse --show-toplevel 2>/dev/null); then
-        [ -d "$gitroot/.claude/skills/create-jira-task" ] && return 0
+        [ -d "$gitroot/.claude/skills/$skill" ] && return 0
     fi
     return 1
 }
+
+jira_available()   { skill_installed "create-jira-task"; }
+github_available() { skill_installed "create-github-issue"; }
 
 detect_scope() {
     scope_mode="all"
@@ -247,11 +249,18 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
 $body$footer"
     fi
 
-    # Offer the Jira handoff only when the create-jira-task skill is installed.
-    # Model sees the appended prompt in the transcript so follow-up answers
-    # like "1, 3" or "alle" carry enough context to trigger the skill.
-    if jira_available && [ "${shown:-0}" -gt 0 ]; then
-        msg="$msg"$'\n\n'"Welche davon sollen wir als Jira-Tasks anlegen? (Nummer, 'alle', oder 'später')"
+    # Offer the ticket-creation handoff only when at least one ticket skill is
+    # installed. Wording adapts to what's available so the model sees the right
+    # follow-up prompt in the transcript (answers like "1, 3" or "alle" then
+    # carry enough context to trigger the matching skill).
+    if [ "${shown:-0}" -gt 0 ]; then
+        if jira_available && github_available; then
+            msg="$msg"$'\n\n'"Welche davon sollen wir als Jira-Tasks oder GitHub Issues anlegen? (Nummer, 'alle', oder 'später')"
+        elif jira_available; then
+            msg="$msg"$'\n\n'"Welche davon sollen wir als Jira-Tasks anlegen? (Nummer, 'alle', oder 'später')"
+        elif github_available; then
+            msg="$msg"$'\n\n'"Welche davon sollen wir als GitHub Issues anlegen? (Nummer, 'alle', oder 'später')"
+        fi
     fi
 
     emit_block "$msg"
