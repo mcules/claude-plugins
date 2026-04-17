@@ -44,7 +44,7 @@ touch "$buffer"
 # prefix and our header.
 emit_block() {
     local msg
-    msg=$'\n'"$1"
+    msg=$'\n\n'"$1"
     jq -nc --arg msg "$msg" \
         '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
 }
