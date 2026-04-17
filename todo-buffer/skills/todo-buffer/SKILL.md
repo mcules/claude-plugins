@@ -1,11 +1,11 @@
 ---
 name: todo-buffer
-description: Lightweight personal todo buffer stored in a single markdown file. Trigger whenever the user (a) prefixes a message with "todo:" / "Todo:" / "TODO:" (captures with project reference) or "todo!" / "Todo!" / "TODO!" (captures without project reference) to add a new item, (b) asks ANYTHING about their todos — see/list/show/check/look-again ("was liegt im speicher", "zeig meine todos", "welche todos habe ich", "welche todos liegen da", "ich will todos erstellen", "was habe ich im todo-speicher", "schau (nochmal) nach todos", "show my todos", "list my todos", "check my todos", "look again"), or (c) is about to create a Jira ticket — in which case always consult the buffer to (1) check whether the proposed ticket duplicates an existing buffered todo and (2) offer to process the remaining buffered todos afterwards. ALWAYS route todo-related questions through this skill — never answer them via ad-hoc `find` / `ls` / `cat` on random paths. Do NOT trigger when the user asks you to track progress on the current task (that's Claude's internal TodoWrite, which is unrelated), when "todo" appears incidentally inside code, or when the user is asking about generic productivity advice.
+description: Lightweight personal todo buffer stored in a single markdown file. Trigger whenever the user (a) prefixes a message with "todo:" / "Todo:" / "TODO:" (captures with project reference) or "todo!" / "Todo!" / "TODO!" (captures without project reference) to add a new item, (b) writes exactly "todos?" (case-insensitive) for a scoped quick-list, (c) asks ANYTHING else about their todos — see/list/show/check/look-again ("was liegt im speicher", "zeig meine todos", "welche todos habe ich", "welche todos liegen da", "ich will todos erstellen", "was habe ich im todo-speicher", "schau (nochmal) nach todos", "show my todos", "list my todos", "check my todos", "look again"), or (d) is about to create a Jira ticket — in which case always consult the buffer to (1) check whether the proposed ticket duplicates an existing buffered todo and (2) offer to process the remaining buffered todos afterwards. ALWAYS route todo-related questions through this skill — never answer them via ad-hoc `find` / `ls` / `cat` on random paths. Do NOT trigger when the user asks you to track progress on the current task (that's Claude's internal TodoWrite, which is unrelated), when "todo" appears incidentally inside code, or when the user is asking about generic productivity advice.
 ---
  
 # Todo Buffer
  
-A tiny personal note-taking buffer: capture a thought now, turn it into a proper Jira ticket later. The buffer lives in a single markdown file so it can be read, grepped, and edited by hand if needed.
+A tiny personal note-taking buffer for Dennis: capture a thought now, turn it into a proper Jira ticket later. The buffer lives in a single markdown file so it can be read, grepped, and edited by hand if needed.
  
 ## Why this exists
  
@@ -13,12 +13,12 @@ Ideas and tasks show up in the middle of unrelated work. Stopping everything to 
  
 ## Storage
  
-Single file: `~/.claude/todo-buffer/todos.md` (on Windows this resolves to `C:\Users\<username>\.claude\todo-buffer\todos.md`).
+Single file: `~/.claude/todo-buffer/todos.md` (on Windows this resolves to `C:\Users\DennisEisold\.claude\todo-buffer\todos.md`).
  
 This path is intentional:
  
 - `~/.claude/` is persistent across sessions and projects, so todos survive.
-- It sits outside any project directory, so the buffer is available regardless of which project the user has open.
+- It sits outside any project directory, so the buffer is available regardless of which project Dennis has open.
 - It is separate from `MEMORY.md` and the individual memory files — do **not** index `todos.md` from `MEMORY.md`. The buffer is a working queue, not a memory fact. Keeping them separate means memory consolidation passes won't sweep todos away.
 - Always use `~` (not a hard-coded absolute path) so the skill works on both Windows and POSIX shells. If the directory doesn't exist yet, create it before writing.
 
@@ -53,8 +53,8 @@ Use this exact layout. The header and HTML comment are there so a human opening 
  
 <!-- Managed by the todo-buffer skill. Each item: "- [YYYY-MM-DD HH:MM] [<project>] <text>" (project tag optional). Add new items at the bottom. -->
  
-- [2026-04-16 14:23] [backend-api] OData client needs retry logic on 502
-- [2026-04-16 15:45] Deploy pipeline: add staging smoketest before prod promote
+- [2026-04-16 14:23] [almex_framework] SAP OData service for material master needs retry logic on 502
+- [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
 ```
  
 Rules:
@@ -87,7 +87,7 @@ Steps:
 5. Append the new line at the bottom using Edit/Write:
    - With tag: `[<timestamp>] [<project>] <text>`
    - Without tag: `[<timestamp>] <text>`
-6. Reply with a one-line confirmation that includes the total count and — if a tag was attached — the project name, e.g. `Gespeichert in backend-api (3 Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (3 Todos im Puffer).` Don't echo the full text back, don't summarise, don't list the other items. The user knows what they just wrote.
+6. Reply with a one-line confirmation that includes the total count and — if a tag was attached — the project name, e.g. `Gespeichert in almex_framework (3 Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (3 Todos im Puffer).` Don't echo the full text back, don't summarise, don't list the other items. The user knows what they just wrote.
  
 **Tool usage:** When helper tools like `jq`, `git`, `awk`, or `grep` are available, feel free to use them — they make many of these steps one-liners. When they aren't, use the Claude Code Read/Write/Edit/Bash tools instead; the logic stays the same. Never fail just because a helper is missing.
 Duplicate handling (scoped to the current project/global context):
@@ -155,6 +155,26 @@ Edge cases:
 - Multi-line todos: if the user writes `todo:`/`todo!` on one line and the actual text on the next (or uses the marker followed by several sentences), collapse it to a single line. If collapsing would lose meaning, ask the user to split it into separate todos.
 - Empty `todo:`/`todo!` — ask what the todo is; don't write an empty line.
 - Git probe fails (no git, detached state, etc.) — treat as "no project available" and write without tag; do not surface the error.
+### 2a. Quick list — user writes `todos?` [argument]
+ 
+Trigger: the message starts with `todos?` (case-insensitive, optional surrounding whitespace), optionally followed by an argument. This is a fast-path shortcut — normally the capture hook handles it without invoking the model. The skill only becomes relevant if the hook can't run (missing deps, non-bash environment, ...).
+ 
+Variants:
+ 
+- `todos?` (no argument) — scope auto-detected from cwd:
+  - **Inside a git repo** → show only entries with a `[<repo-basename>]` tag.
+  - **Non-git but an alias is stored** → use the alias. Empty alias = "global" → entries without a tag.
+  - **No scope** → show the full buffer, no footer.
+- `todos? all` / `todos? alle` / `todos? *` → full buffer regardless of cwd.
+- `todos? global` / `todos? untagged` / `todos? ohne` → only entries without a project tag.
+- `todos? <name>` → entries tagged with `<name>`. Known projects are gathered from both existing buffer tags and non-empty values in `project-aliases.json` (both are effectively global registries — no per-cwd scoping). Matching is:
+  1. Exact, case-insensitive — straight hit.
+  2. Single substring match — use it, prepend a `(Übereinstimmung: "<full name>")` hint line so the user sees which project was resolved.
+  3. Multiple substring matches — list the candidates and ask the user to pick a more specific name.
+  4. No match — reply with the argument and the list of known projects.
+ 
+For any project-scoped listing, drop the `[<project>]` tag from each shown line (the header already names the scope). If entries outside the scope exist, append a footer (`noch N weiteres Todo im Buffer außerhalb dieses Projekts` / `noch N projekt-spezifische Todos im Buffer`). Singular/plural must match the count. Don't ask a follow-up question — `todos?` is a pure read.
+ 
 ### 2. List — user asks to see the buffer
  
 Trigger phrases: "ich will todos erstellen", "was liegt im todo-speicher", "zeig mir meine todos", "welche todos habe ich", "show my todos", "list todos", or similar wording. Also trigger proactively when the user has clearly finished a block of work and starts talking about "abarbeiten" / "grooming" / "tickets anlegen" without specifying a source.
@@ -165,8 +185,8 @@ Steps:
 2. Print the list as-is — keep the timestamp prefixes so the user can see when each was captured. Use an ordered list (1., 2., 3.) so subsequent references like "nimm #2" have an anchor:
    ```
    **Todo-Puffer** (N Einträge):
-   1. [2026-04-16 14:23] OData client needs retry logic on 502
-   2. [2026-04-16 15:45] Deploy pipeline: add staging smoketest before prod promote
+   1. [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
+   2. [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
    ```
  
 3. After printing, check whether the `create-jira-task` skill is available in the current session (it appears in the skill listing) OR whether a Jira/Atlassian MCP integration is registered (tools prefixed `mcp__*atlassian*` / `mcp__*jira*`). 
@@ -188,11 +208,11 @@ When Jira is available, two checks run automatically every time the user is in t
 After `create-jira-task` has produced its proposal (title + German description) but *before* the user confirms creation:
  
 1. Read `todos.md`.
-2. Compare each buffered todo against the proposed ticket **semantically**, not by string match. You are looking for "is this buffered todo and this proposed ticket describing the same piece of work?" — a todo like "OData client needs retry logic on 502" matches a ticket titled "Add retry handling to OData client". Different wording, same work.
+2. Compare each buffered todo against the proposed ticket **semantically**, not by string match. You are looking for "is this buffered todo and this proposed ticket describing the same piece of work?" — a todo like "SAP OData service for material master needs retry logic on 502" matches a ticket titled "Add retry handling to material master OData client". Different wording, same work.
 3. If you find a likely match, tell the user explicitly and ask whether to delete it from the buffer:
    ```
    Hinweis: Im Todo-Puffer liegt ein ähnlicher Eintrag:
-     [2026-04-16 14:23] OData client needs retry logic on 502
+     [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
    Nach dem Anlegen aus dem Puffer löschen? (ja/nein)
    ```
  
@@ -205,8 +225,8 @@ After the Jira ticket is successfully created (the link has been returned to the
  
 ```
 Im Puffer liegen noch N Todos. Auch gleich abarbeiten?
-1. [2026-04-16 14:23] OData client needs retry logic on 502
-2. [2026-04-16 15:45] Deploy pipeline: add staging smoketest before prod promote
+1. [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
+2. [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
 (Nummer(n), 'alle', oder 'später')
 ```
  

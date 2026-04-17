@@ -28,7 +28,199 @@ payload=$(cat)
 prompt=$(printf '%s' "$payload" | jq -r '.prompt // .user_prompt // empty' 2>/dev/null)
 [ -z "$prompt" ] && exit 0
 
+buffer_dir="$HOME/.claude/todo-buffer"
+buffer="$buffer_dir/todos.md"
+aliases_file="$buffer_dir/project-aliases.json"
+mkdir -p "$buffer_dir"
+touch "$buffer"
+
+# --- Scope detection (shared by list + capture) ---
+# Sets: scope_mode = "project" | "global" | "all" (unknown dir)
+#       scope_project = "<name>" or ""
+detect_scope() {
+    scope_mode="all"
+    scope_project=""
+    if gitroot=$(git rev-parse --show-toplevel 2>/dev/null); then
+        scope_mode="project"
+        scope_project=$(basename "$gitroot")
+        return
+    fi
+    if [ -f "$aliases_file" ]; then
+        alias_value=$(TODO_PWD_KEY="cwd:$PWD" jq -r 'if has(env.TODO_PWD_KEY) then .[env.TODO_PWD_KEY] else "__MISSING__" end' "$aliases_file" 2>/dev/null)
+        if [ "$alias_value" != "__MISSING__" ]; then
+            if [ -z "$alias_value" ]; then
+                scope_mode="global"
+            else
+                scope_mode="project"
+                scope_project="$alias_value"
+            fi
+        fi
+    fi
+}
+
 shopt -s nocasematch
+
+# --- Dispatch: `todos?` [arg] -> list; `todo:` / `todo!` -> capture; else passthrough ---
+if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
+    shopt -u nocasematch
+    arg="${BASH_REMATCH[1]}"
+    arg="${arg#"${arg%%[![:space:]]*}"}"
+    arg="${arg%"${arg##*[![:space:]]}"}"
+
+    hint=""
+
+    if [ -z "$arg" ]; then
+        detect_scope
+    else
+        arg_lower=$(printf '%s' "$arg" | tr '[:upper:]' '[:lower:]')
+        case "$arg_lower" in
+            all|alle|'*')
+                scope_mode="all"; scope_project="" ;;
+            global|untagged|ohne)
+                scope_mode="global"; scope_project="" ;;
+            *)
+                # Known projects: distinct [tags] in todos.md + distinct non-empty alias values.
+                # Both sources are already global (buffer and aliases.json are shared across
+                # all cwds), so the user can reference any project from anywhere.
+                known_tags=$(awk '
+                    /^\[[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+\]/ {
+                        pe = index($0, "] ")
+                        rest = substr($0, pe + 2)
+                        if (rest ~ /^\[[^][]+\] /) {
+                            pe2 = index(rest, "] ")
+                            p = substr(rest, 2, pe2 - 2)
+                            if (!(p in seen)) { seen[p] = 1; print p }
+                        }
+                    }
+                ' "$buffer")
+                known_aliases=""
+                if [ -f "$aliases_file" ]; then
+                    known_aliases=$(jq -r 'to_entries | map(select(.value != "")) | .[].value' "$aliases_file" 2>/dev/null)
+                fi
+                known=$(printf '%s\n%s\n' "$known_tags" "$known_aliases" | awk 'NF && !seen[$0]++')
+
+                exact=""
+                substr_list=""
+                while IFS= read -r p; do
+                    [ -z "$p" ] && continue
+                    p_lower=$(printf '%s' "$p" | tr '[:upper:]' '[:lower:]')
+                    if [ "$p_lower" = "$arg_lower" ]; then
+                        exact="$p"; break
+                    fi
+                    case "$p_lower" in
+                        *"$arg_lower"*) substr_list="${substr_list}${p}"$'\n' ;;
+                    esac
+                done <<< "$known"
+
+                substr_count=$(printf '%s' "$substr_list" | awk 'NF' | wc -l | tr -d ' ')
+
+                if [ -n "$exact" ]; then
+                    scope_mode="project"; scope_project="$exact"
+                elif [ "$substr_count" -eq 1 ]; then
+                    scope_mode="project"
+                    scope_project=$(printf '%s' "$substr_list" | awk 'NF' | head -1)
+                    hint="(Übereinstimmung: \"$scope_project\")"$'\n'
+                elif [ "$substr_count" -gt 1 ]; then
+                    candidates=$(printf '%s' "$substr_list" | awk 'NF' | paste -sd, - | sed 's/,/, /g')
+                    msg="Mehrere Projekte passen zu \"$arg\": $candidates. Bitte exakter angeben."
+                    jq -nc --arg msg "$msg" '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+                    exit 0
+                else
+                    if [ -z "$known" ]; then
+                        msg="Kein Projekt \"$arg\" gefunden — es gibt noch keine projekt-getaggten Todos im Buffer."
+                    else
+                        list=$(printf '%s' "$known" | paste -sd, - | sed 's/,/, /g')
+                        msg="Kein Projekt \"$arg\" gefunden. Bekannt sind: $list."
+                    fi
+                    jq -nc --arg msg "$msg" '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+                    exit 0
+                fi
+                ;;
+        esac
+    fi
+
+    counts=$(awk -v mode="$scope_mode" -v proj="$scope_project" '
+        /^\[[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+\]/ {
+            total++
+            pe = index($0, "] ")
+            rest = substr($0, pe + 2)
+            lp = ""
+            if (rest ~ /^\[[^][]+\] /) {
+                pe2 = index(rest, "] ")
+                lp = substr(rest, 2, pe2 - 2)
+            }
+            keep = 0
+            if (mode == "all") keep = 1
+            else if (mode == "global" && lp == "") keep = 1
+            else if (mode == "project" && lp == proj) keep = 1
+            if (keep) shown++
+        }
+        END { printf "%d %d", shown+0, total+0 }
+    ' "$buffer")
+    shown=$(printf '%s' "$counts" | awk '{print $1}')
+    total=$(printf '%s' "$counts" | awk '{print $2}')
+    other=$((total - shown))
+
+    plural() { if [ "$1" -eq 1 ]; then printf '%s' "$2"; else printf '%s' "$3"; fi; }
+
+    if [ "$total" -eq 0 ]; then
+        msg="${hint}Der Puffer ist leer."
+    elif [ "$shown" -eq 0 ]; then
+        other_word=$(plural "$total" "Todo" "Todos")
+        case "$scope_mode" in
+            project) msg="${hint}Keine Todos im Puffer für \"$scope_project\" (noch $total $other_word im Buffer).";;
+            global)  msg="${hint}Keine globalen Todos im Puffer (noch $total projekt-spezifische $other_word im Buffer).";;
+            *)       msg="${hint}Der Puffer ist leer.";;
+        esac
+    else
+        shown_word=$(plural "$shown" "Eintrag" "Einträge")
+        case "$scope_mode" in
+            project) header="**Todo-Puffer — $scope_project** ($shown $shown_word):";;
+            global)  header="**Todo-Puffer — global (ohne Projekt-Tag)** ($shown $shown_word):";;
+            *)       header="**Todo-Puffer** ($shown $shown_word):";;
+        esac
+        body=$(awk -v mode="$scope_mode" -v proj="$scope_project" '
+            /^\[[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+\]/ {
+                pe = index($0, "] ")
+                rest = substr($0, pe + 2)
+                lp = ""
+                lt = rest
+                if (rest ~ /^\[[^][]+\] /) {
+                    pe2 = index(rest, "] ")
+                    lp = substr(rest, 2, pe2 - 2)
+                    lt = substr(rest, pe2 + 2)
+                }
+                keep = 0
+                if (mode == "all") keep = 1
+                else if (mode == "global" && lp == "") keep = 1
+                else if (mode == "project" && lp == proj) keep = 1
+                if (keep) {
+                    n++
+                    ts = substr($0, 1, index($0, "] "))
+                    if (mode == "project")  printf "%d. %s %s\n", n, ts, lt
+                    else                    printf "%d. %s\n", n, $0
+                }
+            }
+        ' "$buffer")
+        if [ "$other" -gt 0 ]; then
+            other_word=$(plural "$other" "weiteres Todo" "weitere Todos")
+            case "$scope_mode" in
+                project) footer=$(printf '\n(noch %d %s im Buffer außerhalb dieses Projekts)' "$other" "$other_word");;
+                global)  footer=$(printf '\n(noch %d projekt-spezifische%s im Buffer)' "$other" "$( [ "$other" -eq 1 ] && printf 's Todo' || printf ' Todos' )");;
+                *)       footer="";;
+            esac
+        else
+            footer=""
+        fi
+        msg="${hint}${header}
+$body$footer"
+    fi
+
+    jq -nc --arg msg "$msg" \
+        '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+    exit 0
+fi
+
 if [[ "$prompt" =~ ^[[:space:]]*todo([:!])[[:space:]]*(.*) ]]; then
     marker="${BASH_REMATCH[1]}"
     text="${BASH_REMATCH[2]}"
@@ -40,12 +232,6 @@ shopt -u nocasematch
 text="${text#"${text%%[![:space:]]*}"}"
 text="${text%"${text##*[![:space:]]}"}"
 [ -z "$text" ] && exit 0
-
-buffer_dir="$HOME/.claude/todo-buffer"
-buffer="$buffer_dir/todos.md"
-aliases_file="$buffer_dir/project-aliases.json"
-mkdir -p "$buffer_dir"
-touch "$buffer"
 
 project=""
 if [ "$marker" = ":" ]; then
