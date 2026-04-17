@@ -13,7 +13,8 @@
     "customFields": {
       "storyPoints": "customfield_10016",
       "sprint": "customfield_10020"
-    }
+    },
+    "sprintCardinality": "array"
   },
 
   "assignee": {

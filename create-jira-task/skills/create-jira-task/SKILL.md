@@ -63,6 +63,10 @@ Read `<repo-root>/.claude/create-jira-task.json`. That file carries the Jira tar
 2. `getVisibleJiraProjects` → pick the project key + id
 3. `getJiraProjectIssueTypesMetadata` → resolve Task / Bug issue-type ids
 4. `getJiraIssueTypeMetaWithFields` → find the Story Points custom field id and the Sprint custom field id
+5. **Probe the Sprint field schema** to decide cardinality. In the `getJiraIssueTypeMetaWithFields` response, look at the sprint field's `schema`:
+   - `schema.type == "array"` → write `"sprintCardinality": "array"` (standard Jira default — the field holds a list of sprint ids).
+   - `schema.type == "number"` (or any non-array scalar) → write `"sprintCardinality": "scalar"` (the field holds a single sprint id, no wrapping array).
+   - If the schema is ambiguous or unreadable, default to `"array"` and note it — the user can correct it by hand after the first failed create.
 
 Write the result to `.claude/create-jira-task.json` and continue. If the user declines, stop and explain that the Jira target is required — don't guess IDs.
 
@@ -94,7 +98,8 @@ This is a pure probe. If the caller wants to act on a `not-ready` result (e.g. o
     "projectKey": "<KEY>",
     "projectId": "<numeric>",
     "issueTypes": { "task": "<id>", "bug": "<id>" },
-    "customFields": { "storyPoints": "customfield_<n>", "sprint": "customfield_<n>" }
+    "customFields": { "storyPoints": "customfield_<n>", "sprint": "customfield_<n>" },
+    "sprintCardinality": "array|scalar"
   },
   "assignee": { "email": "<user email>" },
   "language": {
@@ -262,9 +267,16 @@ fields:
   summary:      "<title>"
   description:  "<body as markdown>"               # MCP handles ADF conversion
   <jira.customFields.storyPoints>: <SP number>
-  <jira.customFields.sprint>: [<active-sprint-id>]   # only if user confirmed and sprint field is configured
+  <jira.customFields.sprint>: <sprint-id>          # only if user confirmed and sprint field is configured — SHAPE depends on jira.sprintCardinality (see below)
   assignee:     { accountId: "<lookup>" }          # only if user said self-assign
 ```
+
+**Sprint field shape** — driven by `jira.sprintCardinality` (defaults to `"array"` when absent):
+
+- `"array"` (Jira default, multi-select sprint field) → send `[<sprint-id>]` — a list with one numeric id.
+- `"scalar"` (single-select sprint field, found in some customized projects) → send just `<sprint-id>` — the number itself, no wrapping array.
+
+Sending an array where the field expects a scalar (or vice versa) produces a type error from Jira. If the config doesn't declare the cardinality, probe the field schema via `getJiraIssueTypeMetaWithFields` the same way bootstrap does, but don't silently write to the config file from here — just use the probed value for this call and tell the user to add `"sprintCardinality"` to the config for next time.
 
 Only include the sprint custom field and `assignee` when the user actually asked for them. Omit every other field entirely — don't send `null`, don't send empty arrays.
 
@@ -306,4 +318,5 @@ Never silently drop fields the user asked for. If you can't set the sprint, ask;
 - **Silently emitting a split-optional-threshold ticket without a split option** — the user wants to *see* the split alternative every time, even when they might ultimately keep the single ticket. Omitting the split is paternalistic.
 - **Offering a single-ticket option at a split-mandatory threshold** — it's off the project matrix. Only the split is on the table.
 - **Using the sprint name instead of the sprint id** in the sprint custom field — Jira expects a numeric id.
+- **Ignoring `jira.sprintCardinality`** and always wrapping the sprint id in an array — in Jira projects configured as single-select sprint, the field expects the raw number and rejects `[42]` with a type error. Bootstrap auto-detects this; if your config predates the option, add `"sprintCardinality": "scalar"` or `"array"` explicitly.
 - **Hardcoding `accountId` for the assignee** — look it up each time via the MCP; accountIds can change, and the skill shouldn't carry personal data.
