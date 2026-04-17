@@ -187,9 +187,9 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
     else
         shown_word=$(plural "$shown" "Eintrag" "Einträge")
         case "$scope_mode" in
-            project) header="**Todo-Puffer — $scope_project** ($shown $shown_word):";;
-            global)  header="**Todo-Puffer — global (ohne Projekt-Tag)** ($shown $shown_word):";;
-            *)       header="**Todo-Puffer** ($shown $shown_word):";;
+            project) header="Todo-Puffer — $scope_project ($shown $shown_word):";;
+            global)  header="Todo-Puffer — global (ohne Projekt-Tag) ($shown $shown_word):";;
+            *)       header="Todo-Puffer ($shown $shown_word):";;
         esac
         body=$(awk -v mode="$scope_mode" -v proj="$scope_project" '
             /^\[[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+\]/ {
