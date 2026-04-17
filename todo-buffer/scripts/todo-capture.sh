@@ -205,8 +205,8 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
         if [ "$other" -gt 0 ]; then
             other_word=$(plural "$other" "weiteres Todo" "weitere Todos")
             case "$scope_mode" in
-                project) footer=$(printf '\n(noch %d %s im Buffer außerhalb dieses Projekts)' "$other" "$other_word");;
-                global)  footer=$(printf '\n(noch %d projekt-spezifische%s im Buffer)' "$other" "$( [ "$other" -eq 1 ] && printf 's Todo' || printf ' Todos' )");;
+                project) footer=$(printf '\n\n(noch %d %s im Buffer außerhalb dieses Projekts)' "$other" "$other_word");;
+                global)  footer=$(printf '\n\n(noch %d projekt-spezifische%s im Buffer)' "$other" "$( [ "$other" -eq 1 ] && printf 's Todo' || printf ' Todos' )");;
                 *)       footer="";;
             esac
         else
