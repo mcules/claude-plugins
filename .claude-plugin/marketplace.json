@@ -1,0 +1,15 @@
+{
+  "name": "claude-plugins",
+  "owner": {
+    "name": "Dennis Eisold",
+    "url": "https://github.com/mcules"
+  },
+  "plugins": [
+    {
+      "name": "todo-buffer",
+      "source": "./todo-buffer",
+      "description": "Frictionless personal todo capture into a single markdown file. Intercepts `todo:` / `todo!` prompts via hook, supports listing and Jira-ticket handoff via skill.",
+      "version": "0.1.0"
+    }
+  ]
+}

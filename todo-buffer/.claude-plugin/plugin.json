@@ -1,0 +1,9 @@
+{
+  "name": "todo-buffer",
+  "version": "0.1.0",
+  "description": "Frictionless personal todo capture into a single markdown file at ~/.claude/todo-buffer/todos.md. Prefix a prompt with `todo:` to capture with a project tag (repo name, auto-detected), or `todo!` to capture without. Intercepts prompts via UserPromptSubmit hook for near-instant capture; also provides list/Jira-handoff via skill.",
+  "author": {
+    "name": "Dennis Eisold"
+  },
+  "hooks": "./hooks/hooks.json"
+}
