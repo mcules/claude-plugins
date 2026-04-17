@@ -5,7 +5,7 @@ description: Lightweight personal todo buffer stored in a single markdown file. 
  
 # Todo Buffer
  
-A tiny personal note-taking buffer for Dennis: capture a thought now, turn it into a proper Jira ticket later. The buffer lives in a single markdown file so it can be read, grepped, and edited by hand if needed.
+A tiny personal note-taking buffer: capture a thought now, turn it into a proper Jira ticket later. The buffer lives in a single markdown file so it can be read, grepped, and edited by hand if needed.
  
 ## Why this exists
  
@@ -13,12 +13,12 @@ Ideas and tasks show up in the middle of unrelated work. Stopping everything to 
  
 ## Storage
  
-Single file: `~/.claude/todo-buffer/todos.md` (on Windows this resolves to `C:\Users\DennisEisold\.claude\todo-buffer\todos.md`).
+Single file: `~/.claude/todo-buffer/todos.md` (on Windows this resolves to `C:\Users\<username>\.claude\todo-buffer\todos.md`).
  
 This path is intentional:
  
 - `~/.claude/` is persistent across sessions and projects, so todos survive.
-- It sits outside any project directory, so the buffer is available regardless of which project Dennis has open.
+- It sits outside any project directory, so the buffer is available regardless of which project the user has open.
 - It is separate from `MEMORY.md` and the individual memory files — do **not** index `todos.md` from `MEMORY.md`. The buffer is a working queue, not a memory fact. Keeping them separate means memory consolidation passes won't sweep todos away.
 - Always use `~` (not a hard-coded absolute path) so the skill works on both Windows and POSIX shells. If the directory doesn't exist yet, create it before writing.
 
@@ -53,8 +53,8 @@ Use this exact layout. The header and HTML comment are there so a human opening 
  
 <!-- Managed by the todo-buffer skill. Each item: "- [YYYY-MM-DD HH:MM] [<project>] <text>" (project tag optional). Add new items at the bottom. -->
  
-- [2026-04-16 14:23] [almex_framework] SAP OData service for material master needs retry logic on 502
-- [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
+- [2026-04-16 14:23] [backend-api] OData client needs retry logic on 502
+- [2026-04-16 15:45] Deploy pipeline: add staging smoketest before prod promote
 ```
  
 Rules:
@@ -77,17 +77,78 @@ Steps:
  
 1. Strip the prefix (`todo:` or `todo!`) and any surrounding whitespace. What remains is the todo text. Remember which marker was used — it decides whether to attach a project tag.
 2. Determine the project tag (only if the marker was `todo:`):
-   - Try `git -C "$PWD" rev-parse --show-toplevel` — if it succeeds, take `basename` of the returned path.
-   - Fall back to `basename "$PWD"` only if the user is in a directory that clearly isn't a transient/home location (skip if `$PWD` equals `$HOME` or a known scratch path).
-   - If neither yields a meaningful name, proceed without a tag — never ask the user to name the project.
-   - If the marker was `todo!`, skip this step entirely — no tag, no git probe.
-3. Read the current date/time: `date +"%Y-%m-%d %H:%M"`.
-4. Read `todos.md` (create it with the header if it doesn't exist).
-5. Append the new line at the bottom:
-   - With tag: `- [<timestamp>] [<project>] <text>`
-   - Without tag: `- [<timestamp>] <text>`
-6. Reply with a one-line confirmation that includes the total count and — if a tag was attached — the project name, e.g. `Gespeichert in almex_framework (3 Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (3 Todos im Puffer).` Don't echo the full text back, don't summarise, don't list the other items. The user knows what they just wrote.
-If the same text already exists verbatim in the buffer (same text portion, project tag ignored for the comparison), don't add a duplicate — reply with a one-liner like `Steht schon drin, nichts geändert.` and stop.
+   - Try to detect the git repository root. Use whatever's available in the current shell: `git rev-parse --show-toplevel` on POSIX/Git Bash, `git.exe rev-parse --show-toplevel` on PowerShell, etc. If the command succeeds, take the last path component (basename) as the tag.
+   - If the probe fails for *any* reason (git not installed, not inside a repo, permission denied, ...), treat as non-git and consult `~/.claude/todo-buffer/project-aliases.json`. Keys in that file are `cwd:<absolute-path>` (the `cwd:` prefix exists to defeat MSYS path translation on Git Bash — keep it even if you're on a system where it wouldn't matter, so the mapping stays portable).
+   - If the current cwd has a mapped value, use it — an empty string means "user picked global, no tag".
+   - If there's neither a git repo nor a stored alias, enter the **1d. Non-git capture flow** below. Never invent a project name.
+   - If the marker was `todo!`, skip this whole step — no tag, no git probe, no alias lookup.
+3. Get the current local time in the format `YYYY-MM-DD HH:MM`. Any means works: `date +"%Y-%m-%d %H:%M"` in bash/zsh, `Get-Date -Format "yyyy-MM-dd HH:mm"` in PowerShell, Python/Node one-liners, whatever the environment offers. Don't guess — always query the shell.
+4. Read `todos.md` (create it if absent — just an empty file is fine; the header is optional).
+5. Append the new line at the bottom using Edit/Write:
+   - With tag: `[<timestamp>] [<project>] <text>`
+   - Without tag: `[<timestamp>] <text>`
+6. Reply with a one-line confirmation that includes the total count and — if a tag was attached — the project name, e.g. `Gespeichert in backend-api (3 Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (3 Todos im Puffer).` Don't echo the full text back, don't summarise, don't list the other items. The user knows what they just wrote.
+ 
+**Tool usage:** When helper tools like `jq`, `git`, `awk`, or `grep` are available, feel free to use them — they make many of these steps one-liners. When they aren't, use the Claude Code Read/Write/Edit/Bash tools instead; the logic stays the same. Never fail just because a helper is missing.
+Duplicate handling (scoped to the current project/global context):
+ 
+- **Exact match within scope** — same text, same project tag (or both untagged for `todo!`): don't add a duplicate, reply `Steht schon drin, nichts geändert.` and stop.
+- **Same text in a different project** — that's NOT a duplicate. Two repos can legitimately share the same todo ("add README"). Append as normal.
+- **Similar (not identical) within scope** — Jaccard token overlap ≥ 0.7 but not exact. Enter the Similarity-Flow (see below).
+ 
+### 1d. Non-git capture flow (first-time folder, no alias)
+ 
+Triggered when the capture hook runs `todo:` in a directory that is (a) not inside a git repo and (b) has no entry in `~/.claude/todo-buffer/project-aliases.json` yet. The hook passes control here via `additionalContext` and has NOT written the todo.
+ 
+The additionalContext provides:
+- `cwd` — absolute path of the current directory.
+- `basename` — the last path component, suggested as default project name.
+- `text` — the todo text.
+- Instructions to write the entry and persist the alias.
+ 
+Steps:
+ 
+1. Ask the user:
+   ```
+   Der aktuelle Ordner ist kein Git-Repo. Soll ich "<basename>" als Projekt-Tag nehmen, einen anderen Namen nutzen, oder das Todo global (ohne Tag) speichern?
+   (basename / <eigener Name> / global)
+   ```
+2. Parse the answer:
+   - `basename` (or "ja", confirmation) → tag = `<basename>`.
+   - Any other string → tag = that string (trimmed).
+   - `global` / `ohne` / `kein` → tag = `""` (empty string, meaning no tag).
+3. Append the entry to `~/.claude/todo-buffer/todos.md`:
+   - Get a timestamp in `YYYY-MM-DD HH:MM` format from whatever shell you have (bash `date`, PowerShell `Get-Date`, ...).
+   - With tag: `[<timestamp>] [<tag>] <text>` — without tag: `[<timestamp>] <text>`.
+4. Persist the alias in `~/.claude/todo-buffer/project-aliases.json`:
+   - Key: `cwd:<absolute-path>` (the `cwd:` prefix is mandatory — it prevents Git Bash from translating unix-style `/tmp/foo` paths into Windows paths).
+   - Value: the chosen tag (empty string if user picked global).
+   - Read the file (or start with `{}` if it doesn't exist), add/update the mapping, and write it back. Any method is fine — Edit/Write tool, or `jq` if it's available. Don't overwrite existing keys.
+5. Confirm with the normal one-liner (`Gespeichert in <tag> (N Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (N Todos im Puffer).`).
+ 
+From now on, the hook will use the stored alias for this folder and skip the question entirely. If the user later wants to change the alias for a folder, they can edit `project-aliases.json` by hand or ask you to update it.
+ 
+### 1b. Capture similarity flow (triggered by hook additionalContext)
+ 
+When the capture hook detects a similar-but-not-identical existing entry in the same scope, it **does not write** the new todo and instead hands control to this skill via `additionalContext`. The context gives you:
+- The candidate line (timestamp + optional tag + text).
+- The text the user just tried to capture.
+- The Jaccard similarity score (for reference only).
+- The exact line to append if the user confirms "eintragen".
+ 
+Steps in this flow:
+ 
+1. Show the candidate to the user and ask clearly:
+   ```
+   Im Puffer gibt es schon einen ähnlichen Eintrag:
+     <candidate line>
+   Ist das dasselbe Todo, oder soll ich es trotzdem eintragen? (gleich / eintragen / abbrechen)
+   ```
+2. Wait for the answer.
+   - **"gleich" / "ja dasselbe" / "skip"** — do nothing, reply `Ok, bleibt beim bestehenden Eintrag.` Don't modify the buffer.
+   - **"eintragen" / "trotzdem"** — append the exact line from the `additionalContext` (the hook already formatted it with timestamp + scope tag). Reply with the normal capture confirmation (`Gespeichert in <proj> (N Todos im Puffer).` or the global variant).
+   - **"abbrechen" / "nein"** — neither add nor confirm anything, just acknowledge with `Ok, abgebrochen.`
+3. Never silently add or discard — every outcome needs an explicit reply.
  
 Edge cases:
  
@@ -104,28 +165,34 @@ Steps:
 2. Print the list as-is — keep the timestamp prefixes so the user can see when each was captured. Use an ordered list (1., 2., 3.) so subsequent references like "nimm #2" have an anchor:
    ```
    **Todo-Puffer** (N Einträge):
-   1. [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
-   2. [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
+   1. [2026-04-16 14:23] OData client needs retry logic on 502
+   2. [2026-04-16 15:45] Deploy pipeline: add staging smoketest before prod promote
    ```
  
-3. After printing, ask: "Welche davon sollen wir als Jira-Tasks anlegen? (Nummer nennen, oder 'alle', oder 'später')". Then wait.
-4. When the user picks one or more, hand each selected todo off to the `create-jira-task` skill as the ticket seed. After each ticket is successfully created, **delete that line from `todos.md`** — the buffer should shrink as tickets are filed.
+3. After printing, check whether the `create-jira-task` skill is available in the current session (it appears in the skill listing) OR whether a Jira/Atlassian MCP integration is registered (tools prefixed `mcp__*atlassian*` / `mcp__*jira*`). 
+   - **Jira available** — ask: `Welche davon sollen wir als Jira-Tasks anlegen? (Nummer nennen, oder 'alle', oder 'später')`. Then wait.
+   - **Jira not available** — ask: `Willst du welche davon aus dem Puffer löschen oder bearbeiten? (Nummer, 'alle löschen', oder 'später')`. No mention of Jira. Stay a pure todo buffer.
+4. Act on the user's pick:
+   - For Jira: hand each selected todo off to the `create-jira-task` skill as the ticket seed. After each ticket is successfully created, **delete that line from `todos.md`**.
+   - For delete: remove the chosen line(s) from `todos.md` after explicit confirmation.
 Don't re-sort, don't re-number the file itself (the displayed numbering is just for the chat — the file stays in capture order). Deletion is done by rewriting the file with the chosen line(s) removed.
  
-### 3. Jira integration — whenever a Jira ticket is about to be created
+### 3. Jira integration — *only if a Jira path is available*
  
-This is the part that makes the buffer pull its weight. Two checks run automatically every time the user is in the middle of creating a Jira ticket (via the `create-jira-task` skill or any equivalent):
+**Gate:** Before running any of the checks below, confirm that `create-jira-task` (or an equivalent Jira/Atlassian MCP integration) is reachable in the current session. If not, skip this whole section entirely — the user is running the plugin as a plain todo buffer, and volunteering Jira prompts would be noise. The gate only applies to *this section*; capture, list, delete, and similarity-detection all stay active unconditionally.
+ 
+When Jira is available, two checks run automatically every time the user is in the middle of creating a Jira ticket (via the `create-jira-task` skill or any equivalent):
  
 **Check A — duplicate detection (before creation).**
  
 After `create-jira-task` has produced its proposal (title + German description) but *before* the user confirms creation:
  
 1. Read `todos.md`.
-2. Compare each buffered todo against the proposed ticket **semantically**, not by string match. You are looking for "is this buffered todo and this proposed ticket describing the same piece of work?" — a todo like "SAP OData service for material master needs retry logic on 502" matches a ticket titled "Add retry handling to material master OData client". Different wording, same work.
+2. Compare each buffered todo against the proposed ticket **semantically**, not by string match. You are looking for "is this buffered todo and this proposed ticket describing the same piece of work?" — a todo like "OData client needs retry logic on 502" matches a ticket titled "Add retry handling to OData client". Different wording, same work.
 3. If you find a likely match, tell the user explicitly and ask whether to delete it from the buffer:
    ```
    Hinweis: Im Todo-Puffer liegt ein ähnlicher Eintrag:
-     [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
+     [2026-04-16 14:23] OData client needs retry logic on 502
    Nach dem Anlegen aus dem Puffer löschen? (ja/nein)
    ```
  
@@ -138,8 +205,8 @@ After the Jira ticket is successfully created (the link has been returned to the
  
 ```
 Im Puffer liegen noch N Todos. Auch gleich abarbeiten?
-1. [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
-2. [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
+1. [2026-04-16 14:23] OData client needs retry logic on 502
+2. [2026-04-16 15:45] Deploy pipeline: add staging smoketest before prod promote
 (Nummer(n), 'alle', oder 'später')
 ```
  

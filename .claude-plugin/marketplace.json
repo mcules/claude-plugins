@@ -1,5 +1,8 @@
 {
-  "name": "claude-plugins",
+  "name": "mcules-plugins",
+  "metadata": {
+    "description": "Personal Claude Code plugins by mcules."
+  },
   "owner": {
     "name": "Dennis Eisold",
     "url": "https://github.com/mcules"
