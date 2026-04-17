@@ -49,6 +49,25 @@ emit_block() {
         '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
 }
 
+# Check if the create-jira-task skill is installed so we can offer the
+# Jira-handoff prompt at the bottom of `todos?` listings. We look for the
+# user-level install, the plugin-provided install, and common alternates.
+# If none exist, treat the environment as plain todo-only (no Jira prompt).
+jira_available() {
+    # User-level install
+    [ -d "$HOME/.claude/skills/create-jira-task" ] && return 0
+    # Plugin-provided install
+    for p in "$HOME/.claude/plugins/"*"/skills/create-jira-task"; do
+        [ -d "$p" ] && return 0
+    done
+    # Project-level (current dir or nearest git root)
+    [ -d "$PWD/.claude/skills/create-jira-task" ] && return 0
+    if gitroot=$(git rev-parse --show-toplevel 2>/dev/null); then
+        [ -d "$gitroot/.claude/skills/create-jira-task" ] && return 0
+    fi
+    return 1
+}
+
 detect_scope() {
     scope_mode="all"
     scope_project=""
@@ -226,6 +245,13 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
         fi
         msg="${hint}${header}
 $body$footer"
+    fi
+
+    # Offer the Jira handoff only when the create-jira-task skill is installed.
+    # Model sees the appended prompt in the transcript so follow-up answers
+    # like "1, 3" or "alle" carry enough context to trigger the skill.
+    if jira_available && [ "${shown:-0}" -gt 0 ]; then
+        msg="$msg"$'\n\n'"Welche davon sollen wir als Jira-Tasks anlegen? (Nummer, 'alle', oder 'später')"
     fi
 
     emit_block "$msg"
