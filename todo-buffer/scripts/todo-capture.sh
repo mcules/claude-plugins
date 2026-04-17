@@ -37,9 +37,11 @@ touch "$buffer"
 # --- Scope detection (shared by list + capture) ---
 # Sets: scope_mode = "project" | "global" | "all" (unknown dir)
 #       scope_project = "<name>" or ""
-# Emit a blocking systemMessage with a leading blank line so the "Operation
-# stopped by hook:" prefix that Claude Code prepends is visually separated
-# from our header.
+# Emit a blocking message. Claude Code renders the content from `stopReason`,
+# prefixed with "Operation stopped by hook:" — we can't suppress that prefix
+# without giving up the block (then the model runs, defeating the fast path).
+# A leading blank line in the payload gives visual breathing room between the
+# prefix and our header.
 emit_block() {
     local msg
     msg=$'\n'"$1"
