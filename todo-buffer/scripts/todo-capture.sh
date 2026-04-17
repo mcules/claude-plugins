@@ -37,6 +37,16 @@ touch "$buffer"
 # --- Scope detection (shared by list + capture) ---
 # Sets: scope_mode = "project" | "global" | "all" (unknown dir)
 #       scope_project = "<name>" or ""
+# Emit a blocking systemMessage with a leading blank line so the "Operation
+# stopped by hook:" prefix that Claude Code prepends is visually separated
+# from our header.
+emit_block() {
+    local msg
+    msg=$'\n'"$1"
+    jq -nc --arg msg "$msg" \
+        '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+}
+
 detect_scope() {
     scope_mode="all"
     scope_project=""
@@ -123,7 +133,7 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
                 elif [ "$substr_count" -gt 1 ]; then
                     candidates=$(printf '%s' "$substr_list" | awk 'NF' | paste -sd, - | sed 's/,/, /g')
                     msg="Mehrere Projekte passen zu \"$arg\": $candidates. Bitte exakter angeben."
-                    jq -nc --arg msg "$msg" '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+                    emit_block "$msg"
                     exit 0
                 else
                     if [ -z "$known" ]; then
@@ -132,7 +142,7 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
                         list=$(printf '%s' "$known" | paste -sd, - | sed 's/,/, /g')
                         msg="Kein Projekt \"$arg\" gefunden. Bekannt sind: $list."
                     fi
-                    jq -nc --arg msg "$msg" '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+                    emit_block "$msg"
                     exit 0
                 fi
                 ;;
@@ -216,8 +226,7 @@ if [[ "$prompt" =~ ^[[:space:]]*todos[?][[:space:]]*(.*)$ ]]; then
 $body$footer"
     fi
 
-    jq -nc --arg msg "$msg" \
-        '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+    emit_block "$msg"
     exit 0
 fi
 
@@ -330,8 +339,7 @@ status=$(printf '%s' "$result" | cut -f1)
 
 case "$status" in
     exact)
-        jq -nc --arg msg "Steht schon drin, nichts geändert." \
-            '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+        emit_block "Steht schon drin, nichts geändert."
         exit 0
         ;;
     similar)
@@ -361,6 +369,5 @@ else
     msg="Gespeichert ohne Projekt-Ref (${count} Todos im Puffer)."
 fi
 
-jq -nc --arg msg "$msg" \
-    '{decision:"block", reason:$msg, systemMessage:$msg, continue:false, stopReason:$msg, suppressOutput:false}'
+emit_block "$msg"
 exit 0
