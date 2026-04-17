@@ -39,7 +39,9 @@ Duplicate handling is project-scoped: same text in the same project tag → reje
 - `~/.claude/todo-buffer/todos.md` — the buffer. One line per entry: `[YYYY-MM-DD HH:MM] [<project>] <text>` (tag optional).
 - `~/.claude/todo-buffer/project-aliases.json` — cwd → project-tag map. Keys are `cwd:<absolute-path>` (the `cwd:` prefix prevents MSYS from rewriting `/tmp/foo` into a Windows path on Git Bash). Empty value means "user picked global for this folder".
 
-Natural-language questions like "zeig meine todos", "welche todos habe ich", "was liegt im puffer" still work — they go through the model and the skill, just a bit slower than the `todos?` shortcut. If `create-jira-task` (or an Atlassian MCP) is available, the skill offers to turn selected todos into tickets; otherwise it stays a plain buffer with add/list/delete.
+Natural-language questions like "zeig meine todos", "welche todos habe ich", "was liegt im puffer" still work — they go through the model and the skill, just a bit slower than the `todos?` shortcut.
+
+The ticket-system hand-off is gated via a simple readiness protocol: todo-buffer asks each known ticket-creation skill (currently `create-jira-task`; `create-github-issue` is planned) whether it is `ready` for the current project — the ticket-system owns that definition, todo-buffer doesn't inspect MCP tool lists or config files itself. If any skill says `ready`, the Jira/GitHub hand-off is offered. If none is ready, the skill asks **once per project** whether to set one up (`Jira / GitHub / nein`); the answer is remembered in `~/.claude/todo-buffer/project-settings.json` keyed by project root. Once declined, todo-buffer stays a plain buffer with add/list/delete for that project and makes no further mention of ticket systems.
 
 ### create-jira-task
 

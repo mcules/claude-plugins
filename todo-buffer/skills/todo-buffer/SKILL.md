@@ -53,8 +53,8 @@ Use this exact layout. The header and HTML comment are there so a human opening 
  
 <!-- Managed by the todo-buffer skill. Each item: "- [YYYY-MM-DD HH:MM] [<project>] <text>" (project tag optional). Add new items at the bottom. -->
  
-- [2026-04-16 14:23] [almex_framework] SAP OData service for material master needs retry logic on 502
-- [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
+- [2026-04-16 14:23] [backend-api] payment provider client fails with 502 — add retry with backoff
+- [2026-04-16 15:45] release pipeline: add staging smoketest before prod promote
 ```
  
 Rules:
@@ -66,7 +66,60 @@ Rules:
 - Preserve the header and the HTML comment. If the file doesn't exist yet, create it with the header block above.
 - No other sections, no grouping, no status markers. Flat list.
 If the file grows past ~50 items, suggest to the user that it's time to process some of them — don't silently reorganize.
- 
+
+## Ticket-system readiness protocol
+
+todo-buffer can hand a todo off to a ticket-creation skill (Jira, GitHub Issues, …), but it does NOT inspect MCPs, config files, or skill internals to decide whether that's possible. Instead, each ticket-system skill exposes a lightweight "Readiness check" contract that answers one question for the current project: `ready` or `not-ready`. todo-buffer just calls it.
+
+**Known ticket-system skills** (extend this list when new ones ship):
+
+| Skill | Target |
+|-------|--------|
+| `create-jira-task` | Jira (Atlassian) |
+| `create-github-issue` | GitHub Issues — *planned; include once the plugin exists* |
+
+**How to invoke the readiness check on skill `X`:**
+
+1. Verify skill `X` is present in the current session's skill listing. If not, treat as `not-ready` without further probing.
+2. Follow `X`'s documented "Readiness check" section. The contract is uniform across ticket-system skills:
+   - Output is exactly one token: `ready` or `not-ready`.
+   - No user-facing questions, no bootstraps, no file writes, no draft tickets — it's a silent probe.
+3. Collect the result.
+
+**Aggregating:**
+
+- If any skill returns `ready` → the ticket path is available (Case 1 in the list step).
+- If none returns `ready` → check the per-project decline marker (see next section) to decide whether to offer setup (Case 2) or stay quiet (Case 3).
+
+Never fall back to inspecting MCP tool lists, config JSONs, or other skill internals from within todo-buffer. If a readiness check is ambiguous or throws, treat it as `not-ready`.
+
+## Per-project settings
+
+Some todo-buffer decisions are per-project (specifically: whether the user has declined the setup offer). Store them in a single JSON file:
+
+- **Path:** `~/.claude/todo-buffer/project-settings.json` — same directory as `project-aliases.json`, so both per-project files live together.
+- **Shape:** a flat object keyed by `cwd:<absolute-project-root>` (the `cwd:` prefix is the same MSYS-safe convention `project-aliases.json` uses). Resolve `<absolute-project-root>` via git toplevel, or cwd if not in a repo.
+- **Value:** an object with one or more settings fields. Currently used fields:
+  - `ticketSetupDeclined` (boolean): user said "nein" to the setup offer for this project.
+  - `ticketSetupDeclinedAt` (ISO timestamp): when they said it.
+
+**Example:**
+
+```json
+{
+  "cwd:/c/Users/example/Projects/some-repo": {
+    "ticketSetupDeclined": true,
+    "ticketSetupDeclinedAt": "2026-04-17T10:30:00Z"
+  }
+}
+```
+
+**Rules:**
+
+- Read: load the file (or treat as `{}` if missing). Look up the entry under `cwd:<project-root>`. Absent key = no answer recorded yet (ask Case 2).
+- Write: merge into the existing object — never overwrite other projects' entries, and never overwrite other fields within the same project's entry.
+- If the user later wants to re-enable the setup offer for a project, they can delete their entry by hand or ask the skill to clear it. todo-buffer does not expose an automatic "reset" command — the file is meant to be edited by humans when needed.
+
 ## The three operations
  
 ### 1. Capture — user writes `todo: <text>` or `todo! <text>`
@@ -87,7 +140,7 @@ Steps:
 5. Append the new line at the bottom using Edit/Write:
    - With tag: `[<timestamp>] [<project>] <text>`
    - Without tag: `[<timestamp>] <text>`
-6. Reply with a one-line confirmation that includes the total count and — if a tag was attached — the project name, e.g. `Gespeichert in almex_framework (3 Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (3 Todos im Puffer).` Don't echo the full text back, don't summarise, don't list the other items. The user knows what they just wrote.
+6. Reply with a one-line confirmation that includes the total count and — if a tag was attached — the project name, e.g. `Gespeichert in backend-api (3 Todos im Puffer).` or `Gespeichert ohne Projekt-Ref (3 Todos im Puffer).` Don't echo the full text back, don't summarise, don't list the other items. The user knows what they just wrote.
  
 **Tool usage:** When helper tools like `jq`, `git`, `awk`, or `grep` are available, feel free to use them — they make many of these steps one-liners. When they aren't, use the Claude Code Read/Write/Edit/Bash tools instead; the logic stays the same. Never fail just because a helper is missing.
 Duplicate handling (scoped to the current project/global context):
@@ -185,21 +238,34 @@ Steps:
 2. Print the list as-is — keep the timestamp prefixes so the user can see when each was captured. Use an ordered list (1., 2., 3.) so subsequent references like "nimm #2" have an anchor:
    ```
    **Todo-Puffer** (N Einträge):
-   1. [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
-   2. [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
+   1. [2026-04-16 14:23] payment provider client fails with 502 — add retry with backoff
+   2. [2026-04-16 15:45] release pipeline: add staging smoketest before prod promote
    ```
  
-3. After printing, check whether the `create-jira-task` skill is available in the current session (it appears in the skill listing) OR whether a Jira/Atlassian MCP integration is registered (tools prefixed `mcp__*atlassian*` / `mcp__*jira*`). 
-   - **Jira available** — ask: `Welche davon sollen wir als Jira-Tasks anlegen? (Nummer nennen, oder 'alle', oder 'später')`. Then wait.
-   - **Jira not available** — ask: `Willst du welche davon aus dem Puffer löschen oder bearbeiten? (Nummer, 'alle löschen', oder 'später')`. No mention of Jira. Stay a pure todo buffer.
+3. After printing, decide whether to offer a ticket-creation path. Do **not** inspect MCPs, config files, or skill internals from here — that's the ticket-system's concern. Instead, invoke each known ticket-system skill's **Readiness check** (see section "Ticket-system readiness protocol" below) and collect the yes/no answers.
+
+   **Case 1 — at least one ticket system returns `ready`.** Offer the tasks: ask `Welche davon sollen wir als Tasks anlegen? (Nummer nennen, oder 'alle', oder 'später')` (when only Jira is ready, it's implicit; if multiple systems are ready and the user's answer isn't obvious from context, ask which system once and remember the choice for this listing session). Then wait.
+
+   **Case 2 — no system is ready, and the user has NOT declined setup in this project** (see "Per-project settings" below for how to check). Ask exactly once:
+
+   ```
+   Für dieses Projekt ist kein Ticketsystem eingerichtet. Willst du eines einrichten?
+   (Jira / GitHub / nein)
+   ```
+
+   - On `Jira` (or `ja` when only Jira-capable) → hand off to `create-jira-task`'s bootstrap (its Step 0b interactive config-creation flow). After it finishes, re-run the readiness protocol; if now `ready`, continue with Case 1.
+   - On `GitHub` → hand off to `create-github-issue`'s bootstrap when that plugin is present. If it isn't installed, tell the user `Das GitHub-Plugin ist nicht installiert — derzeit geht nur Jira oder 'nein'.` and re-ask.
+   - On `nein` / `später` / `no` → **persist the decline** (see "Per-project settings") and fall through to Case 3 for the rest of this session.
+
+   **Case 3 — no system is ready, and the user HAS declined setup in this project.** Offer only delete/edit: `Willst du welche davon aus dem Puffer löschen oder bearbeiten? (Nummer, 'alle löschen', oder 'später')`. Make no mention of ticket systems or the setup offer — the user already answered.
 4. Act on the user's pick:
    - For Jira: hand each selected todo off to the `create-jira-task` skill as the ticket seed. After each ticket is successfully created, **delete that line from `todos.md`**.
    - For delete: remove the chosen line(s) from `todos.md` after explicit confirmation.
 Don't re-sort, don't re-number the file itself (the displayed numbering is just for the chat — the file stays in capture order). Deletion is done by rewriting the file with the chosen line(s) removed.
  
-### 3. Jira integration — *only if a Jira path is available*
+### 3. Ticket-system integration — *only if a ticket-system skill is ready*
  
-**Gate:** Before running any of the checks below, confirm that `create-jira-task` (or an equivalent Jira/Atlassian MCP integration) is reachable in the current session. If not, skip this whole section entirely — the user is running the plugin as a plain todo buffer, and volunteering Jira prompts would be noise. The gate only applies to *this section*; capture, list, delete, and similarity-detection all stay active unconditionally.
+**Gate:** Before running any of the checks below, run the readiness protocol (see "Ticket-system readiness protocol" below). If no ticket-system skill returns `ready`, skip this whole section entirely — the user is running the plugin as a plain todo buffer, and volunteering ticket prompts here would be noise. Do **not** suggest installing or configuring anything from inside this section; the once-per-project setup offer lives in the list step (Case 2), not here. The gate only applies to *this section*; capture, list, delete, and similarity-detection all stay active unconditionally.
  
 When Jira is available, two checks run automatically every time the user is in the middle of creating a Jira ticket (via the `create-jira-task` skill or any equivalent):
  
@@ -208,11 +274,11 @@ When Jira is available, two checks run automatically every time the user is in t
 After `create-jira-task` has produced its proposal (title + German description) but *before* the user confirms creation:
  
 1. Read `todos.md`.
-2. Compare each buffered todo against the proposed ticket **semantically**, not by string match. You are looking for "is this buffered todo and this proposed ticket describing the same piece of work?" — a todo like "SAP OData service for material master needs retry logic on 502" matches a ticket titled "Add retry handling to material master OData client". Different wording, same work.
+2. Compare each buffered todo against the proposed ticket **semantically**, not by string match. You are looking for "is this buffered todo and this proposed ticket describing the same piece of work?" — a todo like "payment provider client fails with 502 — add retry with backoff" matches a ticket titled "Add exponential backoff retry to payment provider HTTP client". Different wording, same work.
 3. If you find a likely match, tell the user explicitly and ask whether to delete it from the buffer:
    ```
    Hinweis: Im Todo-Puffer liegt ein ähnlicher Eintrag:
-     [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
+     [2026-04-16 14:23] payment provider client fails with 502 — add retry with backoff
    Nach dem Anlegen aus dem Puffer löschen? (ja/nein)
    ```
  
@@ -225,8 +291,8 @@ After the Jira ticket is successfully created (the link has been returned to the
  
 ```
 Im Puffer liegen noch N Todos. Auch gleich abarbeiten?
-1. [2026-04-16 14:23] SAP OData service for material master needs retry logic on 502
-2. [2026-04-16 15:45] rMesh deploy pipeline: add staging smoketest before prod promote
+1. [2026-04-16 14:23] payment provider client fails with 502 — add retry with backoff
+2. [2026-04-16 15:45] release pipeline: add staging smoketest before prod promote
 (Nummer(n), 'alle', oder 'später')
 ```
  
@@ -234,11 +300,12 @@ If the buffer is empty, say nothing — don't add noise for the sake of a messag
  
 This offer is an **offer**, not a loop: if the user picks any, run each through `create-jira-task` (the normal two-phase flow — proposal, confirm, create, link), and delete from the buffer only after successful creation. If they say "später" or "nein", stop cleanly.
  
-## Interaction with create-jira-task
- 
-- `create-jira-task` owns the ticket creation flow end to end. `todo-buffer` doesn't duplicate any of its logic — no SP matrix, no proposal template, no confirmation phrases. It only (a) supplies seed text for a ticket, and (b) runs the two checks above.
-- When handing a todo off to `create-jira-task`, feed the todo text as the raw work description ("make a ticket for: `<todo text>`"). `create-jira-task` will then do its normal extraction, clarifying question (if any), proposal, confirmation, and creation.
-- Deletion from `todos.md` only happens after `create-jira-task` reports a successful ticket URL. If creation fails or the user aborts the confirmation, the todo stays in the buffer.
+## Interaction with ticket-system skills
+
+- Each ticket-system skill (`create-jira-task`, eventually `create-github-issue`, …) owns its creation flow end to end. `todo-buffer` doesn't duplicate any of that logic — no SP matrix, no proposal template, no confirmation phrases, no MCP probing, no config validation. It only (a) runs the readiness protocol to find a reachable path, (b) supplies seed text for a ticket when the user picks one, and (c) runs the two checks in Section 3 during/after creation.
+- When handing a todo off to a ticket-system skill, feed the todo text as the raw work description ("make a ticket for: `<todo text>`"). The target skill then does its own extraction, clarifying question (if any), proposal, confirmation, and creation.
+- Deletion from `todos.md` only happens after the ticket-system skill reports a successful ticket URL. If creation fails or the user aborts the confirmation, the todo stays in the buffer.
+- Setup bootstraps (config creation, MCP setup hints, etc.) belong to the target skill. todo-buffer only *routes* the user there when they pick a system from the Case 2 setup offer — it doesn't run bootstrap steps itself.
 ## Non-negotiable rules
  
 1. **One file, one format.** Don't split into multiple buffer files, don't add categories, don't add priority markers. The whole point is that capture is frictionless; any structure we add is structure the user has to maintain.
@@ -256,3 +323,6 @@ This offer is an **offer**, not a loop: if the user picks any, run each through 
 - **Missing the post-creation offer when the buffer is non-empty.** This is half the skill's value — if the user just paid the cost of creating one ticket, they're in the right mindset to knock out a couple more. Don't skip it.
 - **Ignoring the `todo!` opt-out and tagging anyway.** `todo!` explicitly means "don't touch my cwd, don't tag the project" — run no git probe, write the line without a `[<project>]` tag, and say so in the confirmation. If you're unsure which marker was used, reread the user's message; never guess.
 - **Rewriting existing buffer lines when the format evolves.** Old entries without `[<project>]` tags stay as-is. The new tag only applies to new captures; don't retroactively groom older lines.
+- **Inspecting MCP tool lists or config files to decide if "Jira is ready".** That's the ticket-system skill's job. Call its readiness check and take the `ready`/`not-ready` answer at face value — if todo-buffer starts re-checking internals, the two sides drift the moment a ticket system changes its definition of readiness.
+- **Re-asking the setup question in a project where the user already said no.** Check `~/.claude/todo-buffer/project-settings.json` before asking. One decline per project is final until the user edits the file back.
+- **Writing `ticketSetupDeclined` globally instead of per-project.** The setting is keyed by `cwd:<project-root>`; don't put it at the top level of the settings file, and don't overwrite other projects' entries.

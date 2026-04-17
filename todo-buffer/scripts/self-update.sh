@@ -3,9 +3,9 @@
 # session picks up new versions automatically. Runs on SessionStart.
 #
 # The `marketplace update` call is intentionally unscoped: this plugin may be
-# installed via different marketplaces (mcules-plugins, vostura-plugins, a
-# personal fork, ...). Refreshing whichever the user has registered keeps the
-# hook portable.
+# installed via different marketplaces (the main one, a personal fork, a
+# re-exporting catalog, ...). Refreshing whichever the user has registered
+# keeps the hook portable.
 #
 # Failures are swallowed: offline starts, missing `claude` on PATH, or a
 # transient network hiccup must never block the user's session.
