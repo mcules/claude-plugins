@@ -25,6 +25,12 @@
       "source": "./create-github-issue",
       "description": "Turn a rough request into a full GitHub issue via a GitHub MCP. Two-phase flow (proposal → per-ticket confirmation → create). Repo (owner/repo), labels, milestone mode, language convention, estimation matrix and split thresholds are configured per-repo via `.claude/create-github-issue.json`.",
       "version": "0.1.0"
+    },
+    {
+      "name": "load-jira-task",
+      "source": "./load-jira-task",
+      "description": "Start work on a Jira ticket: fetch it via the Atlassian MCP, create a matching feature branch off the latest sprint branch, and transition the issue to 'In Progress'. Branch name pattern `<KEY>-<id>-<sanitised-title>`. Jira target and branch/sprint/status conventions configured per-repo via `.claude/load-jira-task.json`; interactive bootstrap when config is missing.",
+      "version": "0.1.0"
     }
   ]
 }

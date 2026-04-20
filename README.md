@@ -69,6 +69,16 @@ Triggers on DE/EN phrasings: "mach daraus ein GitHub-Issue", "leg ein Issue auf 
 
 Requires a GitHub MCP server that exposes at least `create_issue` / `createIssue`; bootstrap and milestone resolution also use `list_labels` / `create_label` / `list_milestones` on the same server when available.
 
+### load-jira-task
+
+Start work on a Jira ticket in one step: fetch the issue via the Atlassian MCP, create a feature branch off the latest sprint branch (refreshed from origin first), and transition the issue to "In Progress" (or the configured equivalent). Branch name is `<KEY>-<id>-<sanitised-title>` (e.g. `PROJ-123-Fix-dashed-borders-on-sync-action-checkboxes`). Dirty working tree aborts the flow — the skill refuses to carry uncommitted changes onto a new branch.
+
+Jira target (cloud id, site, project key) and branch/sprint/status conventions are configured per-repo via `.claude/load-jira-task.json`. Defaults: branch prefix derived from `jira.projectKey`, sanitised title preserving original case up to 60 chars, sprint pattern `Sprint_YYYY_WW`, status matches for both German and English ("In Progress" / "In Arbeit" / "In Bearbeitung", done-states include "Fertig" / "Erledigt"). If the config is missing, the skill offers an interactive bootstrap via `getAccessibleAtlassianResources` + `getVisibleJiraProjects`.
+
+Triggers on DE/EN phrasings: "lade jira task PROJ-123", "hol mir PROJ-123", "starte Arbeit an PROJ-123", "leg einen Branch für PROJ-123 an", "pick up PROJ-123", "start work on PROJ-123", "begin work on PROJ-123". Does **not** trigger on read-only look-ups ("was steht in PROJ-123?", "zeig mir PROJ-123") or review requests.
+
+Requires the Atlassian MCP to be connected (same as `create-jira-task`).
+
 ## Install
 
 Add this marketplace, then install the plugins you want:
@@ -78,6 +88,7 @@ Add this marketplace, then install the plugins you want:
 /plugin install todo-buffer@mcules-plugins
 /plugin install create-jira-task@mcules-plugins
 /plugin install create-github-issue@mcules-plugins
+/plugin install load-jira-task@mcules-plugins
 ```
 
 ## Develop
@@ -85,5 +96,5 @@ Add this marketplace, then install the plugins you want:
 ```
 git clone https://github.com/mcules/claude-plugins
 cd claude-plugins
-# edit todo-buffer/, create-jira-task/ or create-github-issue/
+# edit todo-buffer/, create-jira-task/, create-github-issue/ or load-jira-task/
 ```
