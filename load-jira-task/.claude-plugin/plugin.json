@@ -1,0 +1,8 @@
+{
+  "name": "load-jira-task",
+  "version": "0.1.0",
+  "description": "Start work on a Jira task — fetch the ticket via the Atlassian MCP, create a matching feature branch off the latest sprint branch, and transition the issue to 'In Progress'. Branch name pattern `<KEY>-<id>-<sanitised-title>`. Jira target (cloudId, site, project) and branch/sprint/status conventions are configured per-repo via `.claude/load-jira-task.json`; sensible defaults apply when keys are absent. Triggers on DE/EN phrasings like 'lade jira task PROJ-123', 'starte Arbeit an PROJ-123', 'pick up PROJ-123', 'start PROJ-123'.",
+  "author": {
+    "name": "Dennis Eisold"
+  }
+}

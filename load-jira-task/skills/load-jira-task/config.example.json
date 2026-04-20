@@ -1,0 +1,25 @@
+{
+  "_note": "Copy this to <repo>/.claude/load-jira-task.json and replace the placeholder values. Only `jira.*` is required; everything else falls back to skill defaults (branch prefix derived from projectKey, preserved case, max 60 chars; sprints named Sprint_YYYY_WW; case-insensitive matching of 'In Progress' / 'In Arbeit' target statuses). Override only what deviates from those defaults.",
+
+  "jira": {
+    "cloudId": "00000000-0000-0000-0000-000000000000",
+    "site": "your-org.atlassian.net",
+    "projectKey": "PROJ"
+  },
+
+  "branch": {
+    "prefix": "PROJ-",
+    "sanitiseCase": "preserve",
+    "maxLength": 60
+  },
+
+  "sprint": {
+    "pattern": "Sprint_YYYY_WW"
+  },
+
+  "status": {
+    "inProgressTargets": ["In Progress", "In Arbeit"],
+    "inProgressTransitionNames": ["In Progress", "In Arbeit", "In Bearbeitung"],
+    "alreadyStarted": ["In Progress", "In Arbeit", "Done", "Fertig", "Erledigt", "Closed"]
+  }
+}
